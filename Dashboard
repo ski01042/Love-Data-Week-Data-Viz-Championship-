@@ -1,0 +1,103 @@
+import dash
+from dash import dcc, html
+from dash.dependencies import Input, Output
+import plotly.express as px
+import pandas as pd
+
+# Load your dataset here
+lego_data = pd.read_csv('updated_merged_df.csv')
+
+# Function to categorize year into decades
+def categorize_into_decades(year):
+    return str((year // 10) * 10) + 's'
+
+# Adding a 'decade' column to the dataset
+lego_data['decade'] = lego_data['set_year'].apply(categorize_into_decades)
+
+# Unique decades for the dropdown
+unique_decades = sorted(lego_data['decade'].unique())
+
+# Mapping of internal column names to user-friendly display names for x-axis
+x_axis_options = {
+    'theme_name': 'Theme',
+    'color_name': 'Color',
+    'part_category_name': 'Part Category',
+    'set_name': 'Set'
+}
+
+# Variables for the y-axis dropdown (numerical)
+y_axis_options = ['Number of Sets', 'Number of Parts']
+
+# Example for a simple interactive dashboard
+app = dash.Dash(__name__)
+
+# App layout
+app.layout = html.Div([
+    html.H1("LEGO Sets Interactive Dashboard", style={'text-align': 'center'}),
+
+    dcc.Dropdown(id="slct_decade",
+                 options=[{"label": decade, "value": decade} for decade in unique_decades],
+                 multi=False,
+                 value=unique_decades[0],
+                 style={'width': "40%"}
+                 ),
+
+    dcc.Dropdown(id="slct_xaxis",
+                 options=[{"label": name, "value": key} for key, name in x_axis_options.items()],
+                 multi=False,
+                 value='theme_name',
+                 style={'width': "40%"}
+                 ),
+
+    dcc.Dropdown(id="slct_yaxis",
+                 options=[{"label": opt, "value": opt} for opt in y_axis_options],
+                 multi=False,
+                 value='Number of Sets',
+                 style={'width': "40%"}
+                 ),
+
+    html.Div(id='output_container', children=[]),
+    html.Br(),
+
+    dcc.Graph(id='lego_sets_graph', figure={})
+])
+
+# Connect the Plotly graphs with Dash Components
+@app.callback(
+    Output(component_id='output_container', component_property='children'),
+    Output(component_id='lego_sets_graph', component_property='figure'),
+    Input(component_id='slct_decade', component_property='value'),
+    Input(component_id='slct_xaxis', component_property='value'),
+    Input(component_id='slct_yaxis', component_property='value')
+)
+def update_graph(decade_selected, xaxis_selected, yaxis_selected):
+    container = f"Decade: {decade_selected}, X-Axis: {x_axis_options.get(xaxis_selected, xaxis_selected)}, Y-Axis: {yaxis_selected}"
+
+    dff = lego_data.copy()
+    dff = dff[dff["decade"] == decade_selected]
+
+    # Group and count based on y-axis selection
+    if yaxis_selected == 'Number of Sets':
+        dff_grouped = dff.groupby(xaxis_selected)['set_num'].nunique().reset_index(name='Count')
+        yaxis_label = 'Number of Unique Sets'
+    elif yaxis_selected == 'Number of Parts':
+        dff_grouped = dff.groupby(xaxis_selected)['inventory_quantity'].sum().reset_index(name='Count')
+        yaxis_label = 'Total Number of Parts'
+
+    # Sorting the DataFrame by count
+    dff_sorted = dff_grouped.sort_values(by='Count', ascending=False)
+
+    # Generate the plot
+    fig = px.bar(
+        data_frame=dff_sorted,
+        x=xaxis_selected,
+        y='Count',
+        labels={'Count': yaxis_label, xaxis_selected: x_axis_options.get(xaxis_selected, xaxis_selected)},
+        title=f'{yaxis_label} by {x_axis_options.get(xaxis_selected, xaxis_selected)} in the {decade_selected}'
+    )
+
+    return container, fig
+
+# Run the app
+if __name__ == '__main__':
+    app.run_server(debug=True)
